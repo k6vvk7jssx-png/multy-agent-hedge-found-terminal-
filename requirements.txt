@@ -1,0 +1,13 @@
+yfinance
+pandas
+sec-edgar-downloader
+beautifulsoup4
+crewai
+chromadb
+streamlit
+python-dotenv
+mcp
+
+plotly
+streamlit-echarts
+streamlit-extras

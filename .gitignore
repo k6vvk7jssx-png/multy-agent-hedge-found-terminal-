@@ -1,0 +1,21 @@
+# Ambienti virtuali
+.venv/
+.venv312/
+venv/
+env/
+
+# Chiavi e configurazioni locali
+.env
+*.key
+portfolio.json
+
+# Cache di scraping e file generati
+__pycache__/
+*.cache
+cache_*.json
+sec_filings/
+chroma_db/
+saved_research/
+
+# Altri file temporanei
+*.log
