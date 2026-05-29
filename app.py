@@ -190,8 +190,17 @@ tab_strategy_hub, tab_direct_intel, tab_portfolio, tab_vault, tab_folders = st.t
     "Cartelle"
 ])
 
-# Inizializza client OpenAI (DeepSeek)
-deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+# Inizializzazione chiavi nella barra laterale
+st.sidebar.title("🔑 API Configuration")
+st.sidebar.markdown("Se non inserisci una chiave personale qui, verrà utilizzata quella di default configurata sul server (se presente).")
+
+deepseek_api_key = st.sidebar.text_input(
+    "DeepSeek API Key",
+    type="password",
+    value=os.getenv("DEEPSEEK_API_KEY", ""),
+    help="Inserisci la tua chiave API personale di DeepSeek. Non verrà memorizzata."
+)
+
 client = None
 if deepseek_api_key:
     client = OpenAI(api_key=deepseek_api_key, base_url="https://api.deepseek.com/v1")
@@ -335,7 +344,7 @@ with tab_strategy_hub:
             status_box.write(f"🗓️ Data analisi: **{today_full}** — Dati aggiornati a oggi.")
             status_box.write("🚀 Avvio pipeline 6-agenti...")
             
-            report = run_due_diligence(ticker_input, step_callback=crew_step_callback)
+            report = run_due_diligence(ticker_input, step_callback=crew_step_callback, api_key=deepseek_api_key)
             
             sys.stdout = old_stdout
             logs = output_buffer.getvalue()

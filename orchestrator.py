@@ -106,17 +106,28 @@ def search_historical_context(query: str) -> str:
 # CREAZIONE DEL TRIUMVIRATO DI AGENTI
 # ==========================================
 
-def run_due_diligence(ticker: str, step_callback=None) -> str:
+def run_due_diligence(ticker: str, step_callback=None, api_key: str = None) -> str:
     today = datetime.datetime.now().strftime("%A %d %B %Y")
     logger.info(f"Avvio Penta-Agenti CrewAI per la Due Diligence su: {ticker.upper()} — Data: {today}")
     
+    # Se viene passata una chiave personalizzata, usa quella, altrimenti usa la chiave globale
+    active_key = api_key if api_key else os.getenv("DEEPSEEK_API_KEY")
+    if active_key:
+        active_llm = LLM(
+            model="deepseek/deepseek-chat",
+            api_key=active_key,
+            base_url="https://api.deepseek.com"
+        )
+    else:
+        active_llm = deepseek_llm
+
     # 1. QUANT ANALYST
     quant_analyst = Agent(
         role='Senior Quantitative Analyst',
         goal=f'TODAY IS {today}. You MUST use ONLY data from today or the most recent available period. Analyze ALL financial multiples deeply: P/E, EV/EBITDA, P/S, P/B, EBITDA, gross/operating/net margins, ROE, ROA, FCF, debt levels, and growth rates. Evaluate 3-year income statement, cashflow, and balance sheet trends. Flag earnings surprises (beat/miss vs estimates). DEVI SCRIVERE TUTTI I TUOI RAGIONAMENTI IN LINGUA ITALIANA.',
         backstory='You are a ruthless, numbers-driven quant from a top tier activist hedge fund. You examine every line of the income statement, cashflow and balance sheet. If margins are contracting, debt is rising, or FCF is negative while the stock trades at a premium, you recommend a short. You rely exclusively on the data provided by your tools.',
         tools=[get_quant_data],
-        llm=deepseek_llm,
+        llm=active_llm,
         verbose=True,
         step_callback=step_callback
     )
@@ -127,7 +138,7 @@ def run_due_diligence(ticker: str, step_callback=None) -> str:
         goal='Extract and interpret the most recent 10-Q quarterly report from the SEC. Summarize what management SAID about the quarter (MD&A), identify forward guidance, segment performance, and any new risks disclosed for the quarter. DEVI SCRIVERE IL TUO REPORT IN LINGUA ITALIANA.',
         backstory='You are a specialist in reading between the lines of quarterly filings. You know that companies bury bad news in footnotes and use vague language to hide deterioration. You extract the MD&A and flag any soft language that hides weakness.',
         tools=[get_quarterly_data],
-        llm=deepseek_llm,
+        llm=active_llm,
         verbose=True,
         step_callback=step_callback
     )
@@ -138,7 +149,7 @@ def run_due_diligence(ticker: str, step_callback=None) -> str:
         goal='Scrutinize SEC 10-K filings for hidden legal risks, pending lawsuits, and cross-reference them with historical database precedents. DEVI SCRIVERE TUTTI I TUOI RAGIONAMENTI IN LINGUA ITALIANA.',
         backstory='You are a paranoid ex-SEC regulator. You read between the lines of risk factors to find what the company is trying to hide. You ALWAYS use the historical context tool to see if similar risks led to disasters in the past for other companies.',
         tools=[get_legal_data, search_historical_context],
-        llm=deepseek_llm,
+        llm=active_llm,
         verbose=True,
         step_callback=step_callback
     )
@@ -149,7 +160,7 @@ def run_due_diligence(ticker: str, step_callback=None) -> str:
         goal='Analyze real-time social media sentiment from Twitter/X and Reddit (WallStreetBets) using the MCP Server. Determine if the retail and institutional sentiment is bullish or bearish. DEVI SCRIVERE IL TUO REPORT IN LINGUA ITALIANA.',
         backstory='You are a modern data miner. You don\'t care about balance sheets; you care about hype, momentum, and crowd psychology. You know that a stock can rally on terrible earnings if the Twitter sentiment is euphoric.',
         tools=[get_alt_data],
-        llm=deepseek_llm,
+        llm=active_llm,
         verbose=True,
         step_callback=step_callback
     )
@@ -160,7 +171,7 @@ def run_due_diligence(ticker: str, step_callback=None) -> str:
         goal='Analyze insider transactions (buys/sells by executives) and institutional ownership. Determine if the "smart money" is entering or exiting the position. Evaluate short interest levels. DEVI SCRIVERE IL TUO REPORT IN LINGUA ITALIANA.',
         backstory='You are a detective of capital flows. You know that insiders sell for many reasons, but they only buy for one: they think the price will go up. You flag massive sales by CEOs or CFOs as critical red flags.',
         tools=[get_insider_data],
-        llm=deepseek_llm,
+        llm=active_llm,
         verbose=True,
         step_callback=step_callback
     )
@@ -170,7 +181,7 @@ def run_due_diligence(ticker: str, step_callback=None) -> str:
         role='Chief Investment Officer (The Executioner)',
         goal='Synthesize ALL five analyses (Quantitative, Quarterly Narrative, Legal, Social Sentiment, Insider/Ownership) into a definitive asymmetrical Markdown report. IL REPORT FINALE DEVE ESSERE SCRITTO RIGOROSAMENTE IN UN ITALIANO PROFESSIONALE ED ELEGANTE.',
         backstory='You are the ultimate decision maker. You integrate quant numbers, quarterly narratives, legal risks, social momentum, and insider flows to produce a final verdict. You write concise, military-grade financial reports.',
-        llm=deepseek_llm,
+        llm=active_llm,
         verbose=True,
         step_callback=step_callback
     )
