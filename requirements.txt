@@ -11,3 +11,5 @@ mcp
 plotly
 streamlit-echarts
 streamlit-extras
+litellm
+openai
