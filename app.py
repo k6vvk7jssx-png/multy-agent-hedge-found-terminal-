@@ -270,6 +270,9 @@ with tab_strategy_hub:
 
     st.markdown("")
     if st.button(f"🚀 Avvia Due Diligence — {today_str}", disabled=(not ticker_input)):
+        if not deepseek_api_key:
+            st.error("❌ API Key mancante! Inserisci la tua DeepSeek API Key nella barra laterale sinistra per utilizzare gli agenti AI.")
+            st.stop()
         today_full = datetime.datetime.now().strftime("%A %d %B %Y, ore %H:%M")
         
         # ---------- SETUP PROGRESS ----------
@@ -509,7 +512,7 @@ with tab_direct_intel:
                 except Exception as e:
                     st.error(f"Errore API: {e}")
             else:
-                st.error("Client API non configurato.")
+                st.error("❌ Client API non configurato. Inserisci la tua DeepSeek API Key nella barra laterale sinistra.")
 
 # ==========================================
 # TAB 3: PORTFOLIO (VISION & PLOTLY)
@@ -729,6 +732,8 @@ with tab_portfolio:
                                 st.info(response.choices[0].message.content)
                             except Exception as e:
                                 st.error(f"Errore Analisi LLM: {e}")
+                    else:
+                        st.warning("⚠️ Commento Strategico non disponibile. Inserisci la tua DeepSeek API Key nella barra laterale sinistra per sbloccare l'analisi dell'AI.")
 
 # ==========================================
 # TAB 4: VAULT
