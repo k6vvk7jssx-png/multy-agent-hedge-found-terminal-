@@ -248,18 +248,73 @@ tab_strategy_hub, tab_direct_intel, tab_portfolio, tab_vault, tab_folders = st.t
 
 # Inizializzazione chiavi nella barra laterale
 st.sidebar.title("🔑 API Configuration")
-st.sidebar.markdown("Se non inserisci una chiave personale qui, verrà utilizzata quella di default configurata sul server (se presente).")
+st.sidebar.markdown("Se non inserisci una chiave personale qui, verranno utilizzate quelle configurate nel file `.env` locale.")
 
-deepseek_api_key = st.sidebar.text_input(
-    "DeepSeek API Key",
-    type="password",
-    value=os.getenv("DEEPSEEK_API_KEY", ""),
-    help="Inserisci la tua chiave API personale di DeepSeek. Non verrà memorizzata."
+# Selezione del Provider LLM
+llm_provider = st.sidebar.selectbox(
+    "Seleziona il Provider LLM:",
+    ["DeepSeek (Default)", "OpenAI", "Anthropic (Claude)", "Custom (LiteLLM/Ollama)"],
+    key="llm_provider_selector"
 )
 
+# Determinazione del valore di default e del nome chiave
+default_api_key = ""
+api_key_label = "API Key"
+api_key_help = "Inserisci la tua chiave API personale."
+
+if "DeepSeek" in llm_provider:
+    default_api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    api_key_label = "DeepSeek API Key"
+    api_key_help = "Chiave per caricare DeepSeek-V3 e R1."
+elif "OpenAI" in llm_provider:
+    default_api_key = os.getenv("OPENAI_API_KEY", "")
+    api_key_label = "OpenAI API Key"
+    api_key_help = "Chiave per caricare gpt-4o-mini e gpt-4o."
+elif "Anthropic" in llm_provider:
+    default_api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    api_key_label = "Anthropic API Key"
+    api_key_help = "Chiave per caricare Claude 3.5 Haiku/Sonnet."
+else:
+    default_api_key = os.getenv("CUSTOM_API_KEY", "")
+    api_key_label = "Custom API Key (Ollama/Groq)"
+    api_key_help = "Chiave opzionale per il provider personalizzato."
+
+selected_api_key = st.sidebar.text_input(
+    api_key_label,
+    type="password",
+    value=default_api_key,
+    help=api_key_help
+)
+
+# Input opzionale per Custom Model Name
+custom_model_name = ""
+if "Custom" in llm_provider:
+    custom_model_name = st.sidebar.text_input(
+        "Custom Model Name:",
+        placeholder="Es: ollama/llama3 o groq/llama-3.1-70b-versatile",
+        help="Il nome del modello in formato LiteLLM."
+    )
+
+# Configurazione del client OpenAI per la chat Direct Intel (compatibilità fallback)
 client = None
-if deepseek_api_key:
-    client = OpenAI(api_key=deepseek_api_key, base_url="https://api.deepseek.com/v1")
+if selected_api_key:
+    if "DeepSeek" in llm_provider:
+        client = OpenAI(api_key=selected_api_key, base_url="https://api.deepseek.com/v1")
+    elif "OpenAI" in llm_provider:
+        client = OpenAI(api_key=selected_api_key)
+    elif "Anthropic" in llm_provider:
+        # Fallback su chiave OpenAI o DeepSeek dell'ambiente per far girare comunque la chat compatibile
+        openai_fallback_key = os.getenv("OPENAI_API_KEY", "")
+        if openai_fallback_key:
+            client = OpenAI(api_key=openai_fallback_key)
+        else:
+            client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY", ""), base_url="https://api.deepseek.com/v1")
+    else:
+        client = OpenAI(api_key=selected_api_key)
+else:
+    fallback_deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
+    if fallback_deepseek_key:
+        client = OpenAI(api_key=fallback_deepseek_key, base_url="https://api.deepseek.com/v1")
 
 # ==========================================
 # TAB 1: STRATEGY HUB
@@ -326,8 +381,8 @@ with tab_strategy_hub:
 
     st.markdown("")
     if st.button(f"🚀 Avvia Due Diligence — {today_str}", disabled=(not ticker_input)):
-        if not deepseek_api_key:
-            st.error("❌ API Key mancante! Inserisci la tua DeepSeek API Key nella barra laterale sinistra per utilizzare gli agenti AI.")
+        if not selected_api_key:
+            st.error(f"❌ API Key mancante! Inserisci la tua {api_key_label} nella barra laterale sinistra per utilizzare gli agenti AI.")
             st.stop()
         today_full = datetime.datetime.now().strftime("%A %d %B %Y, ore %H:%M")
         
@@ -404,7 +459,13 @@ with tab_strategy_hub:
             status_box.write("🚀 Avvio pipeline 6-agenti...")
             
             from orchestrator import run_due_diligence
-            report = run_due_diligence(ticker_input, step_callback=crew_step_callback, api_key=deepseek_api_key)
+            report = run_due_diligence(
+                ticker_input,
+                step_callback=crew_step_callback,
+                api_key=selected_api_key,
+                provider=llm_provider,
+                custom_model=custom_model_name
+            )
             
             sys.stdout = old_stdout
             logs = output_buffer.getvalue()

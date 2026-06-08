@@ -24,19 +24,71 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# LLM DeepSeek-V3 (Standard per analisti)
+# LLM DeepSeek-V3 (Standard di backup)
 deepseek_llm = LLM(
     model="deepseek/deepseek-chat",
     api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com"
 )
 
-# LLM DeepSeek-R1 (Ragionamento per il CIO)
+# LLM DeepSeek-R1 (Ragionamento di backup)
 deepseek_r1_llm = LLM(
     model="deepseek/deepseek-reasoner",
     api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com"
 )
+
+def resolve_llm(provider: str, api_key: str = None, custom_model: str = None):
+    """
+    Risolve dinamicamente l'LLM da utilizzare per gli analisti e per il CIO.
+    Restituisce una tupla (analyst_llm, cio_llm).
+    """
+    provider = provider.lower()
+    
+    # 1. Recupero chiavi API di default da ambiente se non fornite
+    if not api_key:
+        if "openai" in provider:
+            api_key = os.getenv("OPENAI_API_KEY")
+        elif "anthropic" in provider:
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+        elif "deepseek" in provider:
+            api_key = os.getenv("DEEPSEEK_API_KEY")
+        else:
+            api_key = os.getenv("CUSTOM_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+            
+    # 2. Configurazione dei modelli in base al provider
+    if "openai" in provider:
+        analyst_model = "openai/gpt-4o-mini"
+        cio_model = "openai/gpt-4o"
+        analyst_llm = LLM(model=analyst_model, api_key=api_key)
+        cio_llm = LLM(model=cio_model, api_key=api_key)
+        
+    elif "anthropic" in provider:
+        analyst_model = "anthropic/claude-3-5-haiku"
+        cio_model = "anthropic/claude-3-5-sonnet"
+        analyst_llm = LLM(model=analyst_model, api_key=api_key)
+        cio_llm = LLM(model=cio_model, api_key=api_key)
+        
+    elif "custom" in provider and custom_model:
+        analyst_llm = LLM(model=custom_model, api_key=api_key)
+        cio_llm = LLM(model=custom_model, api_key=api_key)
+        
+    else:
+        analyst_model = "deepseek/deepseek-chat"
+        cio_model = "deepseek/deepseek-reasoner"
+        
+        analyst_llm = LLM(
+            model=analyst_model,
+            api_key=api_key if api_key else os.getenv("DEEPSEEK_API_KEY"),
+            base_url="https://api.deepseek.com"
+        )
+        cio_llm = LLM(
+            model=cio_model,
+            api_key=api_key if api_key else os.getenv("DEEPSEEK_API_KEY"),
+            base_url="https://api.deepseek.com"
+        )
+        
+    return analyst_llm, cio_llm
 
 # Inizializzazione lazy per evitare importazioni lente all'avvio dell'app Streamlit
 _memory = None
@@ -136,25 +188,12 @@ def search_historical_context(query: str) -> str:
 # PIPELINE DI AGENTI
 # ==========================================
 
-def run_due_diligence(ticker: str, step_callback=None, api_key: str = None) -> str:
+def run_due_diligence(ticker: str, step_callback=None, api_key: str = None, provider: str = "DeepSeek", custom_model: str = None) -> str:
     today = datetime.datetime.now().strftime("%A %d %B %Y")
-    logger.info(f"Avvio pipeline 6-agenti per: {ticker.upper()} — {today}")
+    logger.info(f"Avvio pipeline 6-agenti per: {ticker.upper()} — {today} (Provider: {provider})")
 
-    active_key = api_key if api_key else os.getenv("DEEPSEEK_API_KEY")
-    
-    # LLM per gli analisti (DeepSeek-V3, veloce e strutturato)
-    active_v3_llm = LLM(
-        model="deepseek/deepseek-chat",
-        api_key=active_key,
-        base_url="https://api.deepseek.com"
-    ) if active_key else deepseek_llm
-
-    # LLM per il CIO (DeepSeek-R1, ragionamento profondo)
-    active_r1_llm = LLM(
-        model="deepseek/deepseek-reasoner",
-        api_key=active_key,
-        base_url="https://api.deepseek.com"
-    ) if active_key else deepseek_r1_llm
+    # Risolve dinamicamente gli LLM per gli analisti ed il CIO
+    active_v3_llm, active_r1_llm = resolve_llm(provider, api_key, custom_model)
 
     # ------------------------------------------------------------------
     # AGENTE 1: ANALISTA QUANTITATIVO
