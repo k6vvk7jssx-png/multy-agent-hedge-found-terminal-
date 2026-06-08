@@ -2,14 +2,13 @@ yfinance
 pandas
 sec-edgar-downloader
 beautifulsoup4
+lxml
 crewai
 chromadb
 streamlit
 python-dotenv
-mcp
-
 plotly
 streamlit-echarts
 streamlit-extras
-litellm
-openai
+requests
+nest_asyncio

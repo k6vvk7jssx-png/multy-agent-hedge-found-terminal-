@@ -15,7 +15,6 @@ import io
 import time
 import datetime
 import pandas as pd
-from orchestrator import run_due_diligence
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -43,6 +42,63 @@ def search_ticker_yahoo(query: str) -> list[dict]:
     except Exception as e:
         logger.warning(f"Errore ricerca ticker '{query}': {e}")
         return []
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_ticker_info(ticker: str) -> dict:
+    """Recupera le informazioni sul ticker con cache di 1 ora."""
+    try:
+        return yf.Ticker(ticker).info
+    except Exception as e:
+        logger.warning(f"Errore recupero info ticker '{ticker}': {e}")
+        return {}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_ticker_history(ticker: str, period: str = "6mo") -> pd.DataFrame:
+    """Recupera la cronologia prezzi con cache di 1 ora."""
+    try:
+        return yf.Ticker(ticker).history(period=period)
+    except Exception as e:
+        logger.warning(f"Errore recupero history ticker '{ticker}': {e}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_current_price(ticker: str) -> float:
+    """Recupera il prezzo live con cache di 10 minuti."""
+    try:
+        hist = yf.Ticker(ticker).history(period="1d")
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1])
+        return 0.0
+    except Exception as e:
+        logger.warning(f"Errore recupero prezzo live ticker '{ticker}': {e}")
+        return 0.0
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_portfolio_asset_details(ticker: str) -> dict:
+    """Recupera dettagli settoriali e geografici per il portafoglio."""
+    try:
+        info = yf.Ticker(ticker).info
+        country = info.get("country")
+        if not country:
+            currency = info.get("currency", "")
+            if currency == "USD":
+                country = "United States"
+            elif currency == "EUR":
+                country = "Germany"
+            else:
+                country = "United States"
+        return {
+            "sector": info.get("sector", "N/A"),
+            "country": country
+        }
+    except Exception as e:
+        logger.warning(f"Errore dettagli asset '{ticker}': {e}")
+        return {"sector": "N/A", "country": "United States"}
+
 
 # Caricamento Variabili d'Ambiente (.env)
 load_dotenv()
@@ -240,7 +296,7 @@ with tab_strategy_hub:
         # Fetch veloce del nome se inserito manualmente
         try:
             with st.spinner("Identificazione azienda..."):
-                t_info = yf.Ticker(ticker_input).info
+                t_info = get_ticker_info(ticker_input)
                 company_name_display = t_info.get("longName") or t_info.get("shortName") or ticker_input
             st.success(f"Analisi pronta per: **{company_name_display}** ({ticker_input})")
         except:
@@ -347,6 +403,7 @@ with tab_strategy_hub:
             status_box.write(f"🗓️ Data analisi: **{today_full}** — Dati aggiornati a oggi.")
             status_box.write("🚀 Avvio pipeline 6-agenti...")
             
+            from orchestrator import run_due_diligence
             report = run_due_diligence(ticker_input, step_callback=crew_step_callback, api_key=deepseek_api_key)
             
             sys.stdout = old_stdout
@@ -390,7 +447,7 @@ with tab_strategy_hub:
                 # -------------------------
                 st.markdown("##### 📡 Telemetria Rischio (Quant proxy)")
                 try:
-                    info = yf.Ticker(ticker_input).info
+                    info = get_ticker_info(ticker_input)
                     
                     # 1. Valutazione (P/E proxy)
                     pe = info.get('trailingPE', 25)
@@ -451,7 +508,7 @@ with tab_strategy_hub:
                 # -------------------------
                 st.markdown("##### 📈 Price Action Storica (6 Mesi)")
                 try:
-                    hist = yf.Ticker(ticker_input).history(period="6mo")
+                    hist = get_ticker_history(ticker_input, period="6mo")
                     if not hist.empty:
                         fig = go.Figure(data=[go.Candlestick(
                             x=hist.index,
@@ -502,9 +559,43 @@ with tab_direct_intel:
         with st.chat_message("assistant"):
             if client:
                 try:
+                    # RAG: Ricerca semantica sui dossier salvati nel Vault locale (ChromaDB)
+                    context_str = ""
+                    try:
+                        from orchestrator import get_memory
+                        memory = get_memory()
+                        if memory is not None:
+                            results = memory.query_context(prompt, n_results=3)
+                            if results:
+                                context_str = "\n\n--- CONTESTO RILEVATO NEL VAULT LOCALE ---\n"
+                                for r in results:
+                                    ticker_label = r["metadata"].get("ticker", "N/A")
+                                    context_str += f"\n[Dossier {ticker_label}]:\n{r['content'][:1500]}...\n"
+                    except Exception as e:
+                        logger.warning(f"Errore caricamento contesto da SuperMemory per la chat: {e}")
+
+                    # Costruzione messaggi con System Prompt e Contesto RAG
+                    system_prompt = (
+                        "Sei l'analista di supporto della War Room del Hedge Fund. "
+                        "Hai accesso a tutti i dossier di due diligence asimmetrica salvati nel Vault locale dell'applicazione (ChromaDB). "
+                        "Rispondi in Italiano professionale, diretto e orientato all'investimento. "
+                        "Usa i dati dei dossier storici forniti come contesto quando utili alla risposta."
+                    )
+                    
+                    messages = [{"role": "system", "content": system_prompt}]
+                    for m in st.session_state.chat_messages[:-1]:
+                        messages.append({"role": m["role"], "content": m["content"]})
+                    
+                    # Allega il contesto all'ultimo messaggio dell'utente
+                    user_content = prompt
+                    if context_str:
+                        user_content += f"\n\nUsa il seguente contesto estratto dal Vault per supportare la risposta:\n{context_str}"
+                    
+                    messages.append({"role": "user", "content": user_content})
+
                     response = client.chat.completions.create(
                         model="deepseek-chat",
-                        messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.chat_messages]
+                        messages=messages
                     )
                     reply = response.choices[0].message.content
                     st.markdown(reply)
@@ -586,31 +677,19 @@ with tab_portfolio:
                     if not ticker: continue
                     
                     try:
-                        # Recupero prezzo live
-                        t = yf.Ticker(ticker)
-                        current_price = t.history(period="1d")["Close"].iloc[-1]
+                        # Recupero prezzo live e dettagli con cache
+                        current_price = get_current_price(ticker)
+                        details = get_portfolio_asset_details(ticker)
                         
                         invested = qty * buy_price
                         current_val = qty * current_price
                         pnl_abs = current_val - invested
                         pnl_pct = (pnl_abs / invested * 100) if invested != 0 else 0
-                        
-                        # Recupero dati geografici (gestione ETF)
-                        country = t.info.get("country")
-                        if not country:
-                            # Se è un ETF senza paese, inferiamo dalla valuta
-                            currency = t.info.get("currency", "")
-                            if currency == "USD":
-                                country = "United States"
-                            elif currency == "EUR":
-                                country = "Germany" # Placeholder per Europa per la mappa
-                            else:
-                                country = "United States" # Default fallback
                                                 
                         results.append({
                             "Ticker": ticker,
-                            "Settore": t.info.get("sector", "N/A"),
-                            "Paese": country,
+                            "Settore": details.get("sector", "N/A"),
+                            "Paese": details.get("country", "United States"),
                             "Quantità": qty,
                             "Prezzo_Acq": buy_price,
                             "Prezzo_Live": current_price,
